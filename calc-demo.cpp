@@ -6,8 +6,13 @@
 #include <iostream>
 #include <memory>
 #include <string>
+#include <variant>
 
 using namespace std;
+
+// tiny helper
+template<class... Ts> struct overloaded : Ts... { using Ts::operator()...; };
+template<class... Ts> overloaded(Ts...) -> overloaded<Ts...>;
 
 enum class Token { Illegal, Eof, Whitespace, Plus, Minus, Mul, Div, NumberLiteral, RndOpen, RndClose };
 
@@ -19,36 +24,37 @@ ostream& operator<<(ostream& os, Token t) {
 	return os << map[static_cast<size_t>(t)];
 }
 
-struct Expr { // {{{ AST
-	virtual ~Expr() = default;
-};
+// {{{ AST
+struct NumberLiteral;
+struct PlusExpr;
+struct MinusExpr;
+struct MulExpr;
+struct DivExpr;
 
-struct NumberLiteral : public Expr {
+using Expr = variant<NumberLiteral, PlusExpr, MinusExpr, MulExpr, DivExpr>;
+
+struct NumberLiteral {
 	int literal;
-
-	explicit NumberLiteral(int n) : literal{n} {}
 };
 
-struct BinaryExpr : public Expr {
+struct PlusExpr {
 	unique_ptr<Expr> lhs;
 	unique_ptr<Expr> rhs;
-
-	BinaryExpr(unique_ptr<Expr>&& a, unique_ptr<Expr>&& b) : lhs{move(a)}, rhs{move(b)} {}
 };
 
-struct PlusExpr : public BinaryExpr {
-	PlusExpr(unique_ptr<Expr>&& a, unique_ptr<Expr>&& b) : BinaryExpr{move(a), move(b)} {}
+struct MinusExpr {
+	unique_ptr<Expr> lhs;
+	unique_ptr<Expr> rhs;
 };
 
-struct MinusExpr : public BinaryExpr {
-	MinusExpr(unique_ptr<Expr>&& a, unique_ptr<Expr>&& b) : BinaryExpr{move(a), move(b)} {}
+struct MulExpr {
+	unique_ptr<Expr> lhs;
+	unique_ptr<Expr> rhs;
 };
 
-struct MulExpr : public BinaryExpr {
-	MulExpr(unique_ptr<Expr>&& a, unique_ptr<Expr>&& b) : BinaryExpr{move(a), move(b)} {}
-};
-struct DivExpr : public BinaryExpr {
-	DivExpr(unique_ptr<Expr>&& a, unique_ptr<Expr>&& b) : BinaryExpr{move(a), move(b)} {}
+struct DivExpr {
+	unique_ptr<Expr> lhs;
+	unique_ptr<Expr> rhs;
 };
 // }}}
 class Scanner { // {{{
@@ -116,22 +122,22 @@ class ExprParser { // {{{
 	ExprParser(string&& input) : scanner_{move(input)} {
 	}
 
-	unique_ptr<Expr> parse() { return expr(); }
+	Expr parse() { return expr(); }
 
   private:
-	unique_ptr<Expr> expr() { return addExpr(); }
+	Expr expr() { return addExpr(); }
 
-	unique_ptr<Expr> addExpr() {
+	Expr addExpr() {
 		auto lhs = mulExpr();
 		for (;;) {
 			switch (currentToken()) {
 				case Token::Plus:
 					nextToken();
-					lhs = make_unique<PlusExpr>(move(lhs), mulExpr());
+					lhs = PlusExpr{make_unique<Expr>(move(lhs)), make_unique<Expr>(mulExpr())};
 					break;
 				case Token::Minus:
 					nextToken();
-					lhs = make_unique<MinusExpr>(move(lhs), mulExpr());
+					lhs = MinusExpr{make_unique<Expr>(move(lhs)), make_unique<Expr>(mulExpr())};
 					break;
 				default:
 					return lhs;
@@ -139,17 +145,17 @@ class ExprParser { // {{{
 		}
 	}
 
-	unique_ptr<Expr> mulExpr() {
+	Expr mulExpr() {
 		auto lhs = primaryExpr();
 		for (;;) {
 			switch (currentToken()) {
 				case Token::Mul:
 					nextToken();
-					lhs = make_unique<MulExpr>(move(lhs), primaryExpr());
+					lhs = MulExpr{make_unique<Expr>(move(lhs)), make_unique<Expr>(primaryExpr())};
 					break;
 				case Token::Div:
 					nextToken();
-					lhs = make_unique<DivExpr>(move(lhs), primaryExpr());
+					lhs = DivExpr{make_unique<Expr>(move(lhs)), make_unique<Expr>(primaryExpr())};
 					break;
 				default:
 					return lhs;
@@ -157,12 +163,12 @@ class ExprParser { // {{{
 		}
 	}
 
-	unique_ptr<Expr> primaryExpr() {
+	Expr primaryExpr() {
 		switch (currentToken()) {
 			case Token::NumberLiteral: {
 				int number = stoi(scanner_.literal());
 				nextToken();
-				return make_unique<NumberLiteral>(number);
+				return NumberLiteral{number};
 			}
 			case Token::RndOpen: {
 				nextToken();
@@ -183,59 +189,46 @@ class ExprParser { // {{{
 		}
 	}
 }; // }}}
-struct Calculator { // {{{
-	int evaluate(const Expr& e) {
-		if (auto x = dynamic_cast<const PlusExpr*>(&e)) return operator()(*x);
-		if (auto x = dynamic_cast<const MinusExpr*>(&e)) return operator()(*x);
-		if (auto x = dynamic_cast<const MulExpr*>(&e)) return operator()(*x);
-		if (auto x = dynamic_cast<const DivExpr*>(&e)) return operator()(*x);
-		if (auto x = dynamic_cast<const NumberLiteral*>(&e)) return operator()(*x);
-		return -1; // TODO: we should assert(false) instead
-	};
-	int operator()(const PlusExpr& e) { return evaluate(*e.lhs) + evaluate(*e.rhs); }
-	int operator()(const MinusExpr& e) { return evaluate(*e.lhs) - evaluate(*e.rhs); }
-	int operator()(const MulExpr& e) { return evaluate(*e.lhs) * evaluate(*e.rhs); }
-	int operator()(const DivExpr& e) { return evaluate(*e.lhs) / evaluate(*e.rhs); }
-	int operator()(const NumberLiteral& e) { return e.literal; }
-}; // }}}
+int calculate(const Expr& e) { // {{{
+	return visit(overloaded{
+		[&](const NumberLiteral& e) { return e.literal; },
+		[&](const PlusExpr& e) { return calculate(*e.lhs) + calculate(*e.rhs); },
+		[&](const MinusExpr& e) { return calculate(*e.lhs) + calculate(*e.rhs); },
+		[&](const MulExpr& e) { return calculate(*e.lhs) + calculate(*e.rhs); },
+		[&](const DivExpr& e) { return calculate(*e.lhs) + calculate(*e.rhs); },
+	}, e);
+} // }}}
 struct AstPrinter { // {{{
 	ostream& os;
 
 	void print(const Expr& e, const string& label, int d = 0) {
 		prefix(d); os << label << ":\n";
-		if (auto x = dynamic_cast<const PlusExpr*>(&e)) return print(*x, d + 1);
-		if (auto x = dynamic_cast<const MinusExpr*>(&e)) return print(*x, d + 1);
-		if (auto x = dynamic_cast<const MulExpr*>(&e)) return print(*x, d + 1);
-		if (auto x = dynamic_cast<const DivExpr*>(&e)) return print(*x, d + 1);
-		if (auto x = dynamic_cast<const NumberLiteral*>(&e)) return print(*x, d + 1);
+		visit(overloaded{
+			[&](NumberLiteral const& e) {
+				prefix(d + 1); os << "NumberLiteral: " << e.literal << '\n';
+			},
+			[&](PlusExpr const& e) {
+				prefix(d + 1); os << "PlusExpr:\n";
+				print(*e.lhs, "lhs", d + 2);
+				print(*e.rhs, "rhs", d + 2);
+			},
+			[&](MinusExpr const& e) {
+				prefix(d + 1); os << "MinusExpr:\n";
+				print(*e.lhs, "lhs", d + 2);
+				print(*e.rhs, "rhs", d + 2);
+			},
+			[&](MulExpr const& e) {
+				prefix(d + 1); os << "MulExpr:\n";
+				print(*e.lhs, "lhs", d + 2);
+				print(*e.rhs, "rhs", d + 2);
+			},
+			[&](DivExpr const& e) {
+				prefix(d + 1); os << "DivExpr:\n";
+				print(*e.lhs, "lhs", d + 2);
+				print(*e.rhs, "rhs", d + 2);
+			},
+		}, e);
 	};
-	void print(const NumberLiteral& e, int d) {
-		prefix(d); os << "NumberLiteral: " << e.literal << '\n';
-	}
-
-	void print(const PlusExpr& e, int d) {
-		prefix(d); os << "PlusExpr:\n";
-		print(*e.lhs, "lhs", d + 1);
-		print(*e.rhs, "rhs", d + 1);
-	}
-
-	void print(const MinusExpr& e, int d) {
-		prefix(d); os << "MinusExpr:\n";
-		print(*e.lhs, "lhs", d + 1);
-		print(*e.rhs, "rhs", d + 1);
-	}
-
-	void print(const MulExpr& e, int d) {
-		prefix(d); os << "MulExpr:\n";
-		print(*e.lhs, "lhs", d + 1);
-		print(*e.rhs, "rhs", d + 1);
-	}
-
-	void print(const DivExpr& e, int d) {
-		prefix(d); os << "DivExpr:\n";
-		print(*e.lhs, "lhs", d + 1);
-		print(*e.rhs, "rhs", d + 1);
-	}
 
 	void prefix(int d) { if (d) os << setw(d * 2) << setfill(' ') << " "; }
 }; // }}}
@@ -244,11 +237,11 @@ int main(int argc, const char* argv[])
 {
 	const string input {argc > 1 ? argv[1] : "2 + 3 * 4"};
 
-	unique_ptr<Expr> expr = ExprParser{string{input}}.parse();
+	Expr expr = ExprParser{string{input}}.parse();
 
-	cout << "Result: " << Calculator{}.evaluate(*expr) << '\n';
+	cout << "Result: " << calculate(expr) << '\n';
 
-	AstPrinter{cout}.print(*expr, "expr");
+	AstPrinter{cout}.print(expr, "expr");
 
 	return EXIT_SUCCESS;
 }
