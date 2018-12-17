@@ -24,39 +24,6 @@ ostream& operator<<(ostream& os, Token t) {
 	return os << map[static_cast<size_t>(t)];
 }
 
-// {{{ AST
-struct NumberLiteral;
-struct PlusExpr;
-struct MinusExpr;
-struct MulExpr;
-struct DivExpr;
-
-using Expr = variant<NumberLiteral, PlusExpr, MinusExpr, MulExpr, DivExpr>;
-
-struct NumberLiteral {
-	int literal;
-};
-
-struct PlusExpr {
-	unique_ptr<Expr> lhs;
-	unique_ptr<Expr> rhs;
-};
-
-struct MinusExpr {
-	unique_ptr<Expr> lhs;
-	unique_ptr<Expr> rhs;
-};
-
-struct MulExpr {
-	unique_ptr<Expr> lhs;
-	unique_ptr<Expr> rhs;
-};
-
-struct DivExpr {
-	unique_ptr<Expr> lhs;
-	unique_ptr<Expr> rhs;
-};
-// }}}
 class Scanner { // {{{
   private:
 	const string input_;
@@ -111,6 +78,39 @@ class Scanner { // {{{
 		return currentToken_ = t;
 	}
 }; // }}}
+// {{{ AST
+struct NumberLiteral;
+struct PlusExpr;
+struct MinusExpr;
+struct MulExpr;
+struct DivExpr;
+
+using Expr = variant<NumberLiteral, PlusExpr, MinusExpr, MulExpr, DivExpr>;
+
+struct NumberLiteral {
+	int literal;
+};
+
+struct PlusExpr {
+	unique_ptr<Expr> lhs;
+	unique_ptr<Expr> rhs;
+};
+
+struct MinusExpr {
+	unique_ptr<Expr> lhs;
+	unique_ptr<Expr> rhs;
+};
+
+struct MulExpr {
+	unique_ptr<Expr> lhs;
+	unique_ptr<Expr> rhs;
+};
+
+struct DivExpr {
+	unique_ptr<Expr> lhs;
+	unique_ptr<Expr> rhs;
+};
+// }}}
 class ExprParser { // {{{
   private:
 	Scanner scanner_;
