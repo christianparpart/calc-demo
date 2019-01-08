@@ -80,36 +80,18 @@ class Scanner { // {{{
 }; // }}}
 // {{{ AST
 struct NumberLiteral;
-struct PlusExpr;
-struct MinusExpr;
+struct AddExpr;
+struct SubExpr;
 struct MulExpr;
 struct DivExpr;
 
-using Expr = variant<NumberLiteral, PlusExpr, MinusExpr, MulExpr, DivExpr>;
+using Expr = variant<NumberLiteral, AddExpr, SubExpr, MulExpr, DivExpr>;
 
-struct NumberLiteral {
-	int literal;
-};
-
-struct PlusExpr {
-	unique_ptr<Expr> lhs;
-	unique_ptr<Expr> rhs;
-};
-
-struct MinusExpr {
-	unique_ptr<Expr> lhs;
-	unique_ptr<Expr> rhs;
-};
-
-struct MulExpr {
-	unique_ptr<Expr> lhs;
-	unique_ptr<Expr> rhs;
-};
-
-struct DivExpr {
-	unique_ptr<Expr> lhs;
-	unique_ptr<Expr> rhs;
-};
+struct NumberLiteral { int literal; };
+struct AddExpr { unique_ptr<Expr> lhs; unique_ptr<Expr> rhs; };
+struct SubExpr { unique_ptr<Expr> lhs; unique_ptr<Expr> rhs; };
+struct MulExpr { unique_ptr<Expr> lhs; unique_ptr<Expr> rhs; };
+struct DivExpr { unique_ptr<Expr> lhs; unique_ptr<Expr> rhs; };
 // }}}
 class ExprParser { // {{{
   private:
@@ -133,11 +115,11 @@ class ExprParser { // {{{
 			switch (currentToken()) {
 				case Token::Plus:
 					nextToken();
-					lhs = PlusExpr{make_unique<Expr>(move(lhs)), make_unique<Expr>(mulExpr())};
+					lhs = AddExpr{make_unique<Expr>(move(lhs)), make_unique<Expr>(mulExpr())};
 					break;
 				case Token::Minus:
 					nextToken();
-					lhs = MinusExpr{make_unique<Expr>(move(lhs)), make_unique<Expr>(mulExpr())};
+					lhs = SubExpr{make_unique<Expr>(move(lhs)), make_unique<Expr>(mulExpr())};
 					break;
 				default:
 					return lhs;
@@ -192,8 +174,8 @@ class ExprParser { // {{{
 int calculate(const Expr& e) { // {{{
 	return visit(overloaded{
 		[&](const NumberLiteral& e) { return e.literal; },
-		[&](const PlusExpr& e) { return calculate(*e.lhs) + calculate(*e.rhs); },
-		[&](const MinusExpr& e) { return calculate(*e.lhs) + calculate(*e.rhs); },
+		[&](const AddExpr& e) { return calculate(*e.lhs) + calculate(*e.rhs); },
+		[&](const SubExpr& e) { return calculate(*e.lhs) + calculate(*e.rhs); },
 		[&](const MulExpr& e) { return calculate(*e.lhs) + calculate(*e.rhs); },
 		[&](const DivExpr& e) { return calculate(*e.lhs) + calculate(*e.rhs); },
 	}, e);
@@ -207,13 +189,13 @@ struct AstPrinter { // {{{
 			[&](NumberLiteral const& e) {
 				prefix(d + 1); os << "NumberLiteral: " << e.literal << '\n';
 			},
-			[&](PlusExpr const& e) {
-				prefix(d + 1); os << "PlusExpr:\n";
+			[&](AddExpr const& e) {
+				prefix(d + 1); os << "AddExpr:\n";
 				print(*e.lhs, "lhs", d + 2);
 				print(*e.rhs, "rhs", d + 2);
 			},
-			[&](MinusExpr const& e) {
-				prefix(d + 1); os << "MinusExpr:\n";
+			[&](SubExpr const& e) {
+				prefix(d + 1); os << "SubExpr:\n";
 				print(*e.lhs, "lhs", d + 2);
 				print(*e.rhs, "rhs", d + 2);
 			},
